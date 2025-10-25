@@ -1,3 +1,0 @@
-https://albert.apple.com/deviceservices/deviceActivation
-
-Content-Type = text/html
