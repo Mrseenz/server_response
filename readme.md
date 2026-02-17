@@ -20,16 +20,16 @@ This repository now contains:
    - Response body: HTML that embeds a plist in:
      - `<script id="protocol" type="text/x-apple-plist">...`.
 
-3. **Regenerated activation artifacts**
-   - For each activation request, `activation_server.py` parses `ActivationInfoXML` and mints a new activation payload with:
-     - Newly issued local-lab certificates for `AccountTokenCertificate`, `DeviceCertificate`, and `UniqueDeviceCertificate`.
-     - Freshly signed `AccountTokenSignature` over generated `AccountToken` JSON.
-     - Regenerated `FairPlayKeyData` container and request-derived regulatory metadata.
-   - Local CA material is persisted under `artifacts/local_ca` and reused across requests.
+3. **Mimicked certificate/signature regeneration**
+   - On startup, `activation_server.py` extracts certificate signature/public-key profile from the captured activation response certs (`AccountTokenCertificate`, `DeviceCertificate`, `UniqueDeviceCertificate`).
+   - New activation records are minted to mimic captured crypto style:
+     - RSA 1024 + SHA-1 cert/signature style for account-token/device certificates and token signing.
+     - P-256 ECDSA + SHA-256 style for unique-device certificate.
+   - Captured response cryptographic material is used as seed/context (`FairPlayKeyData` prefix + profile metadata) so generated records stay structurally close to repository captures.
 
 ## Important limitation
 
-The regenerated artifacts are cryptographically valid for the local lab CA, **not Apple-trusted activation tickets**. Real devices that enforce Apple trust anchors will still reject non-Apple signatures.
+Generated records mimic captured certificate/signature structure, but they are still locally generated and **not Apple-trusted activation tickets**. Real devices enforcing Apple trust anchors will reject them.
 
 ## Usage
 
@@ -58,7 +58,7 @@ python activation_server.py --host 0.0.0.0 --port 8080
 Endpoints served:
 
 - `POST /deviceservices/drmHandshake` → returns captured handshake plist.
-- `POST /deviceservices/deviceActivation` → parses request and returns a freshly minted activation HTML/plist response with regenerated certificates/signatures.
+- `POST /deviceservices/deviceActivation` → parses request and returns a freshly minted activation HTML/plist response with regenerated certificates/signatures that mimic captured certificate profiles.
 
 ## Notes for real-device testing
 
