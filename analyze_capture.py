@@ -7,6 +7,7 @@ import base64
 import json
 import plistlib
 import re
+import hashlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -86,6 +87,40 @@ def analyze_activation() -> dict:
     }
 
 
+def analyze_crypto_artifacts() -> dict:
+    req_xml = (ROOT / "4 handshake" / "handshake_request.xml").read_text()
+    collection_blob = _extract_data_block(req_xml, "CollectionBlob")
+    handshake_req = plistlib.loads(collection_blob)
+
+    sig_key = base64.b64decode(handshake_req["X-Apple-Sig-Key"])
+    signature = base64.b64decode(handshake_req["X-Apple-Signature"])
+
+    resp_html = (ROOT / "2 deviceActivation" / "deviceActivation_response.txt").read_text()
+    m = re.search(r'<script id="protocol" type="text/x-apple-plist">\s*(<plist.*?</plist>)\s*</script>', resp_html, re.S)
+    response_plist = plistlib.loads(m.group(1).encode()) if m else {}
+    activation_record = response_plist.get("ActivationRecord", {})
+
+    account_token = activation_record.get("AccountToken", b"")
+    account_token_signature = activation_record.get("AccountTokenSignature", b"")
+
+    return {
+        "handshake_signing": {
+            "X-Apple-Sig-Key_decoded_bytes": len(sig_key),
+            "X-Apple-Signature_decoded_bytes": len(signature),
+            "IngestBody_sha256": hashlib.sha256(handshake_req["IngestBody"]).hexdigest(),
+        },
+        "activation_record_signing": {
+            "AccountToken_sha256": hashlib.sha256(account_token).hexdigest() if account_token else None,
+            "AccountTokenSignature_sha256": hashlib.sha256(account_token_signature).hexdigest() if account_token_signature else None,
+            "certificate_fields": [
+                k
+                for k in ["AccountTokenCertificate", "DeviceCertificate", "UniqueDeviceCertificate", "FairPlayKeyData"]
+                if k in activation_record
+            ],
+        },
+    }
+
+
 def main() -> None:
     report = {
         "endpoints": {
@@ -94,6 +129,7 @@ def main() -> None:
         },
         "handshake": analyze_handshake(),
         "deviceActivation": analyze_activation(),
+        "crypto_artifacts": analyze_crypto_artifacts(),
         "limitations": [
             "Captured responses are signed by Apple and device-specific.",
             "A replay server cannot mint new valid activation records.",
