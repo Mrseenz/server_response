@@ -4,7 +4,7 @@ This repository now contains:
 
 - `analyze_capture.py`: parses the captured request/response files and prints a protocol summary.
 - `build_activation_artifacts.py`: extracts Apple-signed handshake and activation cryptographic artifacts into files for offline analysis.
-- `activation_server.py`: a minimal HTTP server that replays captured handshake and activation responses.
+- `activation_server.py`: HTTP server that replays captured handshake responses and mints regenerated activation records/certificates for activation responses.
 
 ## What the capture shows
 
@@ -17,24 +17,19 @@ This repository now contains:
    - Endpoint: `POST /deviceservices/deviceActivation`
    - Request body: `multipart/form-data` with `activation-info` form field.
    - `activation-info` includes `ActivationInfoXML` (base64 plist) with device/baseband/certificate info.
-   - Response body: HTML that embeds an Apple plist in:
+   - Response body: HTML that embeds a plist in:
      - `<script id="protocol" type="text/x-apple-plist">...`.
-   - Success capture includes an `ActivationRecord` dict with fields like `DeviceCertificate`, `FairPlayKeyData`, `AccountToken`, `AccountTokenSignature`.
 
-3. **Cryptographic artifacts now materialized**
-   - Handshake artifacts are exported as raw files:
-     - `handshake_ingest_body.json`
-     - `handshake_sig_key.bin` (decoded `X-Apple-Sig-Key`)
-     - `handshake_signature.der` (decoded `X-Apple-Signature`)
-   - Activation artifacts are exported as raw files:
-     - Apple certificate-like blobs (`AccountTokenCertificate.pem`, `DeviceCertificate.pem`, `UniqueDeviceCertificate.pem`)
-     - `FairPlayKeyData.pem` (Apple `CONTAINER` block)
-     - `AccountToken.json` and `AccountTokenSignature.bin`
-   - A `crypto_report.json` is generated with hashes and parsed certificate summaries.
+3. **Regenerated activation artifacts**
+   - For each activation request, `activation_server.py` parses `ActivationInfoXML` and mints a new activation payload with:
+     - Newly issued local-lab certificates for `AccountTokenCertificate`, `DeviceCertificate`, and `UniqueDeviceCertificate`.
+     - Freshly signed `AccountTokenSignature` over generated `AccountToken` JSON.
+     - Regenerated `FairPlayKeyData` container and request-derived regulatory metadata.
+   - Local CA material is persisted under `artifacts/local_ca` and reused across requests.
 
 ## Important limitation
 
-This implementation **does not generate valid activation tickets**. Apple-signed activation records are cryptographically signed and generally device-specific. This project is for protocol analysis/replay experiments only.
+The regenerated artifacts are cryptographically valid for the local lab CA, **not Apple-trusted activation tickets**. Real devices that enforce Apple trust anchors will still reject non-Apple signatures.
 
 ## Usage
 
@@ -44,7 +39,7 @@ This implementation **does not generate valid activation tickets**. Apple-signed
 python analyze_capture.py
 ```
 
-### 2) Build activation cryptographic artifacts
+### 2) Build activation cryptographic artifacts from captures
 
 ```bash
 python build_activation_artifacts.py
@@ -54,7 +49,7 @@ Default output directory:
 
 - `artifacts/apple_crypto`
 
-### 3) Run replay server
+### 3) Run replay + regeneration server
 
 ```bash
 python activation_server.py --host 0.0.0.0 --port 8080
@@ -63,8 +58,8 @@ python activation_server.py --host 0.0.0.0 --port 8080
 Endpoints served:
 
 - `POST /deviceservices/drmHandshake` → returns captured handshake plist.
-- `POST /deviceservices/deviceActivation` → returns captured activation HTML/plist response.
+- `POST /deviceservices/deviceActivation` → parses request and returns a freshly minted activation HTML/plist response with regenerated certificates/signatures.
 
 ## Notes for real-device testing
 
-If you test against real devices, route the device traffic to this server in a controlled lab setup only. Activation may still fail unless every cryptographic check is satisfied.
+If you test against real devices, route the device traffic to this server in a controlled lab setup only. Activation still requires Apple-trusted signatures for production success.
